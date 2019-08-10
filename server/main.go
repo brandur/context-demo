@@ -41,6 +41,18 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 
+	info := &RequestInfo{}
+	defer func() {
+		deadline, ok := ctx.Deadline()
+		info.TimeLeft = deadline.Sub(time.Now())
+		info.TimedOut = !ok
+
+		log.WithFields(log.Fields{
+			"time_left": info.TimeLeft,
+			"timed_out": info.TimedOut,
+		}).Info("canonical_log_line")
+	}()
+
 	ctxDB := db.WithContext(ctx)
 
 	zoneName := ps.ByName("zone")
@@ -115,6 +127,12 @@ type Record struct {
 
 // RecordType is the type of a DNS record (e.g. A, CNAME).
 type RecordType string
+
+// RequestInfo stores information about the request for logging purposes.
+type RequestInfo struct {
+	TimeLeft time.Duration
+	TimedOut bool
+}
 
 // Zone represents a logical grouping of DNS records around a particular
 // domain.
