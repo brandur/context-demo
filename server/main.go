@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -34,11 +35,18 @@ func main() {
 // Handlers
 //
 
+const httpTimeout = 10 * time.Second
+
 func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer cancel()
+
+	ctxDB := db.WithContext(ctx)
+
 	zoneName := ps.ByName("zone")
 	recordName := ps.ByName("record")
 
-	err := db.RunInTransaction(func(tx *pg.Tx) error {
+	err := ctxDB.RunInTransaction(func(tx *pg.Tx) error {
 		var zone *Zone
 		{
 			zone = &Zone{
