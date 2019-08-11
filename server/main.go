@@ -149,6 +149,7 @@ var (
 	APIErrorBodyEmpty   = &APIError{http.StatusBadRequest, "Empty request body", nil}
 	APIErrorBodyRead    = &APIError{http.StatusBadRequest, "Error reading request body", nil}
 	APIErrorEarlyCancel = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
+	APIErrorInternal    = &APIError{http.StatusInternalServerError, "Internal server error", nil}
 	APIErrorTimeout     = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
 )
 
@@ -310,6 +311,7 @@ func handlerWrapper(handler handler) httprouter.Handle {
 // close to the early cancellation threshold.
 func maybeEarlyCancelDB(ctx context.Context, f func() error) error {
 	if shouldEarlyCancel(ctx, earlyCancelThresholdDB) {
+		// TODO: ctx.Cancel()
 		return APIErrorEarlyCancel
 	}
 
@@ -317,16 +319,23 @@ func maybeEarlyCancelDB(ctx context.Context, f func() error) error {
 }
 
 func renderError(w http.ResponseWriter, info *RequestInfo, err error) {
+	// Some special cases for common error that may occur inwards from our
+	// stack which we want to convert to something more user-friendly.
+	//
+	// `errors.Cause` unwraps an original error that might be wrapped up in
+	// some context from the `errors` package. It's key to call it for
+	// comparison purposes.
+	switch errors.Cause(err) {
+	case context.DeadlineExceeded:
+		err = APIErrorTimeout.WithInternalError(err)
+	}
+
 	apiErr, ok := err.(*APIError)
 
 	// Wrap a non-API error in an API error, keeping the internal error
 	// intact
 	if !ok {
-		apiErr = &APIError{
-			StatusCode:  http.StatusInternalServerError,
-			Message:     "Internal server error",
-			internalErr: err,
-		}
+		apiErr = APIErrorInternal.WithInternalError(err)
 	}
 
 	if apiErr.internalErr != nil {
