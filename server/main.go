@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -27,7 +29,7 @@ func main() {
 	defer db.Close()
 
 	router := httprouter.New()
-	router.PUT("/zones/:zone/records/:record", putRecord)
+	router.PUT("/zones/:zone/records/:record", handlerWrapper(putRecord))
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
@@ -36,37 +38,53 @@ func main() {
 // Handlers
 //
 
-func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
-	defer cancel()
+// handler is the internal signature for an HTTP handler which includes a
+// RequestState.
+type handler func(w http.ResponseWriter, r *http.Request, state *RequestState) error
 
-	info := &RequestInfo{}
-	defer func() {
-		deadline, ok := ctx.Deadline()
-		info.TimeLeft = deadline.Sub(time.Now())
-		info.TimedOut = !ok
+type putRecordParams struct {
+	recordType RecordType `json:"type"`
+}
 
-		log.WithFields(log.Fields{
-			"api_error": info.APIError,
-			"status":    info.StatusCode,
-			"time_left": info.TimeLeft,
-			"timed_out": info.TimedOut,
-		}).Info("canonical_log_line")
-	}()
+func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) error {
+	zoneName := state.RouteParams.ByName("zone")
+	recordName := state.RouteParams.ByName("record")
 
-	ctxDB := db.WithContext(ctx)
+	r.Body = http.MaxBytesReader(w, r.Body, 64 * 1024)
+	defer r.Body.Close()
 
-	zoneName := ps.ByName("zone")
-	recordName := ps.ByName("record")
+	data, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return &APIError{
+			StatusCode: http.StatusBadRequest,
+			Message: "Error reading request body",
+		}
+	}
 
-	err := ctxDB.RunInTransaction(func(tx *pg.Tx) error {
+	if len(data) == 0 {
+		return &APIError{
+			StatusCode: http.StatusBadRequest,
+			Message: "Empty request body",
+		}
+	}
+
+	var params putRecordParams
+	err = json.Unmarshal(data, &params)
+	if err != nil {
+		return &APIError{
+			StatusCode: http.StatusBadRequest,
+			Message: "Error parsing request body to JSON",
+		}
+	}
+
+	err = state.DB.RunInTransaction(func(tx *pg.Tx) error {
 		var zone *Zone
-		err := maybeEarlyCancelDB(ctx, func() error {
+		err := maybeEarlyCancelDB(state.Ctx, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
 
-			_, err := db.Model(zone).
+			_, err := state.DB.Model(zone).
 				OnConflict("(name) DO UPDATE").
 				Set("updated_at = NOW()").
 				Returning("*").
@@ -81,14 +99,14 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			return err
 		}
 
-		err = maybeEarlyCancelDB(ctx, func() error {
+		err = maybeEarlyCancelDB(state.Ctx, func() error {
 			record := &Record{
 				Name:       recordName,
 				RecordType: RecordTypeCNAME,
 				ZoneID:     zone.ID,
 			}
 
-			_, err := db.Model(record).
+			_, err := state.DB.Model(record).
 				OnConflict("(name, record_type, zone_id) DO UPDATE").
 				Set("updated_at = NOW()").
 				Returning("*").
@@ -106,14 +124,13 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return nil
 	})
 	if err != nil {
-		renderError(w, info, err)
-		return
+		return err
 	}
-
-	info.StatusCode = http.StatusOK
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "zone: %s, cname: %s\n", zoneName, recordName)
+
+	return nil
 }
 
 //
@@ -176,6 +193,14 @@ type RequestInfo struct {
 	TimedOut   bool
 }
 
+// RequestState contains key data for an active request.
+type RequestState struct {
+	Ctx         context.Context
+	DB          *pg.DB
+	RequestInfo *RequestInfo
+	RouteParams httprouter.Params
+}
+
 // Zone represents a logical grouping of DNS records around a particular
 // domain.
 type Zone struct {
@@ -185,6 +210,44 @@ type Zone struct {
 	UpdatedAt time.Time
 
 	tableName struct{} `sql:"zone"`
+}
+
+func handlerWrapper(handler handler) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, routeParams httprouter.Params) {
+		ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+		defer cancel()
+
+		requestInfo := &RequestInfo{}
+		defer func() {
+			deadline, ok := ctx.Deadline()
+			requestInfo.TimeLeft = deadline.Sub(time.Now())
+			requestInfo.TimedOut = !ok
+
+			log.WithFields(log.Fields{
+				"api_error": requestInfo.APIError,
+				"status":    requestInfo.StatusCode,
+				"time_left": requestInfo.TimeLeft,
+				"timed_out": requestInfo.TimedOut,
+			}).Info("canonical_log_line")
+		}()
+
+		ctxDB := db.WithContext(ctx)
+
+		state := &RequestState{
+			Ctx: ctx,
+			DB: ctxDB,
+			RequestInfo: requestInfo,
+			RouteParams: routeParams,
+		}
+
+		err := handler(w, r, state)
+		if err != nil {
+			renderError(w, requestInfo, err)
+			return
+		}
+
+		requestInfo.StatusCode = http.StatusOK
+	}
 }
 
 // Runs a database call unless the request has taken a long time and we're too
