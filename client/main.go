@@ -12,14 +12,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-const testServerURL = "http://localhost:8788"
-
-const (
-	testRecordName = "context.mutelight.org"
-	testRecordType = "CNAME"
-	testZoneName = "mutelight.org"
-)
-
 func makeRequest() error {
 	params := &putRecordParams{RecordType: RecordTypeCNAME}
 
@@ -75,7 +67,19 @@ const (
 	RecordTypeCNAME RecordType = "CNAME"
 )
 
-const targetSlowDuration = 3 * time.Second
+const (
+	// Where the test server is running.
+	testServerURL = "http://localhost:8788"
+
+	// Test zone and record names to use.
+	testZoneName = "mutelight.org"
+	testRecordName = "context.mutelight.org"
+	testRecordType = "CNAME"
+
+	// The simulated time for a slow request. The client will send one byte at
+	// a time and aim to make the entirety of the dispatch take this long.
+	targetSlowDuration = 3 * time.Second
+)
 
 // RecordType is the type of a DNS record (e.g. A, CNAME).
 type RecordType string
