@@ -66,8 +66,7 @@ type putRecordResponse struct {
 func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (interface{}, error) {
 	zoneName := state.RouteParams.ByName("zone")
 	recordName := state.RouteParams.ByName("record")
-
-	params := state.BodyParams.(*putRecordParams)
+	bodyParams := state.BodyParams.(*putRecordParams)
 
 	err := state.DB.RunInTransaction(func(tx *pg.Tx) error {
 		var zone *Zone
@@ -94,8 +93,8 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		err = maybeEarlyCancelDB(state, func() error {
 			record := &Record{
 				Name:       recordName,
-				RecordType: params.RecordType,
-				Value:      params.Value,
+				RecordType: bodyParams.RecordType,
+				Value:      bodyParams.Value,
 				ZoneID:     zone.ID,
 			}
 
@@ -122,8 +121,8 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 
 	return &putRecordResponse{
 		Name:       recordName,
-		RecordType: params.RecordType,
-		Value:      params.Value,
+		RecordType: bodyParams.RecordType,
+		Value:      bodyParams.Value,
 	}, nil
 }
 
