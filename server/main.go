@@ -60,12 +60,8 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	recordName := ps.ByName("record")
 
 	err := ctxDB.RunInTransaction(func(tx *pg.Tx) error {
-		if shouldEarlyCancel(ctx, earlyCancelThresholdDB) {
-			return APIErrorEarlyCancel
-		}
-
 		var zone *Zone
-		{
+		err := maybeEarlyCancelDB(ctx, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
@@ -78,15 +74,20 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			if err != nil {
 				return errors.Wrap(err, "zone upsert failed")
 			}
+
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 
-		record := &Record{
-			Name:       recordName,
-			RecordType: RecordTypeCNAME,
-			ZoneID:     zone.ID,
-		}
+		err = maybeEarlyCancelDB(ctx, func() error {
+			record := &Record{
+				Name:       recordName,
+				RecordType: RecordTypeCNAME,
+				ZoneID:     zone.ID,
+			}
 
-		{
 			_, err := db.Model(record).
 				OnConflict("(name, record_type, zone_id) DO UPDATE").
 				Set("updated_at = NOW()").
@@ -95,6 +96,11 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			if err != nil {
 				return errors.Wrap(err, "record upsert failed")
 			}
+
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 
 		return nil
@@ -179,6 +185,16 @@ type Zone struct {
 	UpdatedAt time.Time
 
 	tableName struct{} `sql:"zone"`
+}
+
+// Runs a database call unless the request has taken a long time and we're too
+// close to the early cancellation threshold.
+func maybeEarlyCancelDB(ctx context.Context, f func() error) error {
+	if shouldEarlyCancel(ctx, earlyCancelThresholdDB) {
+		return APIErrorEarlyCancel
+	}
+
+	return f()
 }
 
 func renderError(w http.ResponseWriter, info *RequestInfo, err error) {
