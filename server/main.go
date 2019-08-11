@@ -31,7 +31,7 @@ func main() {
 	router := httprouter.New()
 	router.PUT("/zones/:zone/records/:record", handlerWrapper(putRecord))
 
-	log.Fatal(http.ListenAndServe(":8080", router))
+	log.Fatal(http.ListenAndServe(":8788", router))
 }
 
 //
@@ -43,7 +43,7 @@ func main() {
 type handler func(w http.ResponseWriter, r *http.Request, state *RequestState) error
 
 type putRecordParams struct {
-	recordType RecordType `json:"type"`
+	RecordType RecordType `json:"type"`
 }
 
 func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) error {
@@ -145,7 +145,7 @@ var (
 	APIErrorTimeout     = &APIError{StatusCode: http.StatusServiceUnavailable, Message: "Request timed out"}
 )
 
-const httpTimeout = 10 * time.Second
+const httpTimeout = 2 * time.Second
 
 // Maximum body size (in bytes) to protect against endless streams sent via
 // request body.
@@ -220,6 +220,8 @@ func handlerWrapper(handler handler) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, routeParams httprouter.Params) {
 		ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 		defer cancel()
+
+		fmt.Printf("Accepted connection\n")
 
 		requestInfo := &RequestInfo{}
 		defer func() {
