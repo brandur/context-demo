@@ -140,19 +140,25 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 //
 //////////////////////////////////////////////////////////////////////////////
 
-const httpTimeout = 2 * time.Second
-
-// Maximum body size (in bytes) to protect against endless streams sent via
-// request body.
-const maxRequestBodySize = 64 * 1024
-
-const (
-	earlyCancelThresholdDB = 5 * time.Millisecond
-)
-
 // Constants for common record types.
 const (
 	RecordTypeCNAME RecordType = "CNAME"
+)
+
+const (
+	// The early cancellation threshold to allow for database calls. If we're
+	// within this much time of a request's deadline and we're about to make a
+	// database call, cancel the request instead. This allows us to avoid doing
+	// anymore work for a request that's unlikely to succeed.
+	earlyCancelThresholdDB = 5 * time.Millisecond
+
+	// The amount of time to allow for an HTTP API call before it times out and
+	// cancels.
+	httpTimeout = 2 * time.Second
+
+	// Maximum body size (in bytes) to protect against endless streams sent via
+	// request body.
+	maxRequestBodySize = 64 * 1024
 )
 
 //////////////////////////////////////////////////////////////////////////////
