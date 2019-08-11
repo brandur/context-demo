@@ -57,14 +57,14 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 	if err != nil {
 		return &APIError{
 			StatusCode: http.StatusBadRequest,
-			Message: "Error reading request body",
+			Message:    "Error reading request body",
 		}
 	}
 
 	if len(data) == 0 {
 		return &APIError{
 			StatusCode: http.StatusBadRequest,
-			Message: "Empty request body",
+			Message:    "Empty request body",
 		}
 	}
 
@@ -73,7 +73,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 	if err != nil {
 		return &APIError{
 			StatusCode: http.StatusBadRequest,
-			Message: "Error parsing request body to JSON",
+			Message:    "Error parsing request body to JSON",
 		}
 	}
 
@@ -238,8 +238,8 @@ func handlerWrapper(handler handler) httprouter.Handle {
 		ctxDB := db.WithContext(ctx)
 
 		state := &RequestState{
-			Ctx: ctx,
-			DB: ctxDB,
+			Ctx:         ctx,
+			DB:          ctxDB,
 			RequestInfo: requestInfo,
 			RouteParams: routeParams,
 		}
