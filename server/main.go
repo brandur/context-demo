@@ -124,7 +124,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 		return nil
 	})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "transaction failed")
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -221,8 +221,6 @@ func handlerWrapper(handler handler) httprouter.Handle {
 		ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 		defer cancel()
 
-		fmt.Printf("Accepted connection\n")
-
 		requestInfo := &RequestInfo{}
 		defer func() {
 			deadline, ok := ctx.Deadline()
@@ -248,7 +246,8 @@ func handlerWrapper(handler handler) httprouter.Handle {
 
 		err := handler(w, r, state)
 		if err != nil {
-			renderError(w, requestInfo, err)
+			renderError(w, requestInfo,
+				errors.Wrap(err, "error serving HTTP request"))
 			return
 		}
 
@@ -280,7 +279,8 @@ func renderError(w http.ResponseWriter, info *RequestInfo, err error) {
 	}
 
 	if apiErr.internalErr != nil {
-		log.Errorf("Internal error while serving request: %v",
+		// Note the `%+v` to get error *and* the backtrace
+		log.Errorf("Internal error while serving request: %+v",
 			apiErr.internalErr)
 	}
 
