@@ -55,26 +55,17 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		return &APIError{
-			StatusCode: http.StatusBadRequest,
-			Message:    "Error reading request body",
-		}
+		return APIErrorBodyRead.WithInternalError(err)
 	}
 
 	if len(data) == 0 {
-		return &APIError{
-			StatusCode: http.StatusBadRequest,
-			Message:    "Empty request body",
-		}
+		return APIErrorBodyEmpty
 	}
 
 	var params putRecordParams
 	err = json.Unmarshal(data, &params)
 	if err != nil {
-		return &APIError{
-			StatusCode: http.StatusBadRequest,
-			Message:    "Error parsing request body to JSON",
-		}
+		return APIErrorBodyDecode.WithInternalError(err)
 	}
 
 	err = state.DB.RunInTransaction(func(tx *pg.Tx) error {
@@ -141,6 +132,9 @@ var db *pg.DB
 
 // Common API errors for consistency and quick access.
 var (
+	APIErrorBodyDecode  = &APIError{StatusCode: http.StatusBadRequest, Message: "Error parsing request body to JSON"}
+	APIErrorBodyEmpty   = &APIError{StatusCode: http.StatusBadRequest, Message: "Empty request body"}
+	APIErrorBodyRead    = &APIError{StatusCode: http.StatusBadRequest, Message: "Error reading request body"}
 	APIErrorEarlyCancel = &APIError{StatusCode: http.StatusServiceUnavailable, Message: "Request timed out"}
 	APIErrorTimeout     = &APIError{StatusCode: http.StatusServiceUnavailable, Message: "Request timed out"}
 )
@@ -172,6 +166,13 @@ type APIError struct {
 // Error returns a human-readable error string.
 func (e *APIError) Error() string {
 	return fmt.Sprintf("API error status %v: %s", e.StatusCode, e.Message)
+}
+
+// WithInternalError duplicates the given APIError and adds the given internal
+// error as additional context. This is most useful for adding additional
+// information to a predefined API error without mutating the original.
+func (e *APIError) WithInternalError(internalErr error) *APIError {
+	return &APIError{e.StatusCode, e.Message, internalErr}
 }
 
 // Record represents a single DNS record within a zone.
