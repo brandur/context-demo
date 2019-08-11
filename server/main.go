@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-pg/pg/v9"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	//"github.com/go-pg/pg/v9/orm"
 	"github.com/julienschmidt/httprouter"
@@ -46,6 +47,8 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		info.TimedOut = !ok
 
 		log.WithFields(log.Fields{
+			"api_error": info.APIError,
+			"status":    info.StatusCode,
 			"time_left": info.TimeLeft,
 			"timed_out": info.TimedOut,
 		}).Info("canonical_log_line")
@@ -58,7 +61,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 
 	err := ctxDB.RunInTransaction(func(tx *pg.Tx) error {
 		if shouldEarlyCancel(ctx, earlyCancelThresholdDB) {
-			return fmt.Errorf("Early cancel")
+			return APIErrorEarlyCancel
 		}
 
 		var zone *Zone
@@ -73,7 +76,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				Returning("*").
 				Insert()
 			if err != nil {
-				return err
+				return errors.Wrap(err, "zone upsert failed")
 			}
 		}
 
@@ -90,17 +93,20 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				Returning("*").
 				Insert()
 			if err != nil {
-				return err
+				return errors.Wrap(err, "record upsert failed")
 			}
 		}
 
 		return nil
 	})
 	if err != nil {
-		render500(w, err)
+		renderError(w, info, err)
 		return
 	}
 
+	info.StatusCode = http.StatusOK
+
+	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "zone: %s, cname: %s\n", zoneName, recordName)
 }
 
@@ -109,6 +115,12 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 //
 
 var db *pg.DB
+
+// Common API errors for consistency and quick access.
+var (
+	APIErrorEarlyCancel = &APIError{StatusCode: http.StatusServiceUnavailable, Message: "Request timed out"}
+	APIErrorTimeout     = &APIError{StatusCode: http.StatusServiceUnavailable, Message: "Request timed out"}
+)
 
 const httpTimeout = 10 * time.Second
 
@@ -120,6 +132,20 @@ const (
 const (
 	RecordTypeCNAME RecordType = "CNAME"
 )
+
+// APIError represents an error to return from the API.
+type APIError struct {
+	StatusCode int
+	Message    string
+
+	// internalErr is an internal occur that occurred in the case of a 500.
+	internalErr error
+}
+
+// Error returns a human-readable error string.
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error status %v: %s", e.StatusCode, e.Message)
+}
 
 // Record represents a single DNS record within a zone.
 type Record struct {
@@ -138,8 +164,10 @@ type RecordType string
 
 // RequestInfo stores information about the request for logging purposes.
 type RequestInfo struct {
-	TimeLeft time.Duration
-	TimedOut bool
+	APIError   *APIError
+	StatusCode int
+	TimeLeft   time.Duration
+	TimedOut   bool
 }
 
 // Zone represents a logical grouping of DNS records around a particular
@@ -153,11 +181,29 @@ type Zone struct {
 	tableName struct{} `sql:"zone"`
 }
 
-func render500(w http.ResponseWriter, err error) {
-	log.Errorf("Error while serving request: %v", err)
+func renderError(w http.ResponseWriter, info *RequestInfo, err error) {
+	apiErr, ok := err.(*APIError)
 
-	w.WriteHeader(http.StatusInternalServerError)
-	fmt.Fprintf(w, "Internal server error")
+	// Wrap a non-API error in an API error, keeping the internal error
+	// intact
+	if !ok {
+		apiErr = &APIError{
+			StatusCode:  http.StatusInternalServerError,
+			Message:     "Internal server error",
+			internalErr: err,
+		}
+	}
+
+	if apiErr.internalErr != nil {
+		log.Errorf("Internal error while serving request: %v",
+			apiErr.internalErr)
+	}
+
+	info.APIError = apiErr
+	info.StatusCode = apiErr.StatusCode
+
+	w.WriteHeader(apiErr.StatusCode)
+	fmt.Fprintf(w, apiErr.Message)
 }
 
 func shouldEarlyCancel(ctx context.Context, threshold time.Duration) bool {
