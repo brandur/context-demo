@@ -30,6 +30,7 @@ CREATE TABLE record (
     name            varchar(100)        NOT NULL,
     record_type     record_type         NOT NULL,
     updated_at      timestamptz,
+    value           varchar(100)        NOT NULL,
     zone_id         bigint              NOT NULL REFERENCES zone (id)
 );
 

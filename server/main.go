@@ -44,6 +44,13 @@ type handler func(w http.ResponseWriter, r *http.Request, state *RequestState) e
 
 type putRecordParams struct {
 	RecordType RecordType `json:"type"`
+	Value      string     `json:"value"`
+}
+
+type putRecordResponse struct {
+	Name       string     `json:"name"`
+	RecordType RecordType `json:"type"`
+	Value      string     `json:"value"`
 }
 
 func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) error {
@@ -93,13 +100,14 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 		err = maybeEarlyCancelDB(state.Ctx, func() error {
 			record := &Record{
 				Name:       recordName,
-				RecordType: RecordTypeCNAME,
+				RecordType: params.RecordType,
+				Value:      params.Value,
 				ZoneID:     zone.ID,
 			}
 
 			_, err := state.DB.Model(record).
 				OnConflict("(name, record_type, zone_id) DO UPDATE").
-				Set("updated_at = NOW()").
+				Set("updated_at = NOW(), value = EXCLUDED.value").
 				Returning("*").
 				Insert()
 			if err != nil {
@@ -118,8 +126,18 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 		return errors.Wrap(err, "error in transaction")
 	}
 
+	resp := &putRecordResponse{
+		Name:       recordName,
+		RecordType: params.RecordType,
+		Value:      params.Value,
+	}
+	respData, err := json.Marshal(&resp)
+	if err != nil {
+		return errors.Wrap(err, "error encoding response")
+	}
+
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "zone: %s, cname: %s\n", zoneName, recordName)
+	w.Write(respData)
 
 	return nil
 }
@@ -182,6 +200,7 @@ type Record struct {
 	Name       string
 	RecordType RecordType
 	UpdatedAt  time.Time
+	Value      string
 	ZoneID     int64
 
 	tableName struct{} `sql:"record"`
