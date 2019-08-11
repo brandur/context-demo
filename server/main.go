@@ -15,9 +15,15 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
+//////////////////////////////////////////////////////////////////////////////
+//
+//
 //
 // Main
 //
+//
+//
+//////////////////////////////////////////////////////////////////////////////
 
 func main() {
 	opts, err := pg.ParseURL("postgres://brandur@localhost:5432/context-demo?sslmode=disable")
@@ -35,17 +41,15 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8788", router))
 }
 
+//////////////////////////////////////////////////////////////////////////////
+//
+//
 //
 // Handlers
 //
-
-// handler is the internal signature for an HTTP handler which includes a
-// RequestState.
 //
-// Handlers should return either an object that should be encoded to JSON for a
-// 200 response (emitted as `interface{}`) or an error. The caller should also
-// encode an error response to JSON.
-type handler func(w http.ResponseWriter, r *http.Request, state *RequestState) (interface{}, error)
+//
+//////////////////////////////////////////////////////////////////////////////
 
 type putRecordParams struct {
 	RecordType RecordType `json:"type"`
@@ -126,9 +130,40 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 	}, nil
 }
 
+//////////////////////////////////////////////////////////////////////////////
 //
-// Helpers
 //
+//
+// Constants
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
+
+const httpTimeout = 2 * time.Second
+
+// Maximum body size (in bytes) to protect against endless streams sent via
+// request body.
+const maxRequestBodySize = 64 * 1024
+
+const (
+	earlyCancelThresholdDB = 5 * time.Millisecond
+)
+
+// Constants for common record types.
+const (
+	RecordTypeCNAME RecordType = "CNAME"
+)
+
+//////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// Variables
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
 
 // Global database connection pool initialized by the core of the program. API
 // handlers should never use this, and exclusively use the context-based
@@ -145,20 +180,15 @@ var (
 	APIErrorTimeout     = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
 )
 
-const httpTimeout = 2 * time.Second
-
-// Maximum body size (in bytes) to protect against endless streams sent via
-// request body.
-const maxRequestBodySize = 64 * 1024
-
-const (
-	earlyCancelThresholdDB = 5 * time.Millisecond
-)
-
-// Constants for common record types.
-const (
-	RecordTypeCNAME RecordType = "CNAME"
-)
+//////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// Types
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
 
 // APIError represents an error to return from the API.
 type APIError struct {
@@ -258,6 +288,24 @@ type Zone struct {
 
 	tableName struct{} `sql:"zone"`
 }
+
+// handler is the internal signature for an HTTP handler which includes a
+// RequestState.
+//
+// Handlers should return either an object that should be encoded to JSON for a
+// 200 response (emitted as `interface{}`) or an error. The caller should also
+// encode an error response to JSON.
+type handler func(w http.ResponseWriter, r *http.Request, state *RequestState) (interface{}, error)
+
+//////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// Helper functions
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
 
 func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, routeParams httprouter.Params) {

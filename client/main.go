@@ -12,6 +12,108 @@ import (
 	"github.com/pkg/errors"
 )
 
+//////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// Main
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
+
+func main() {
+	err := makeRequest()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%+v", err)
+		os.Exit(1)
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// Constants
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
+
+// Constants for common record types.
+const (
+	RecordTypeCNAME RecordType = "CNAME"
+)
+
+const (
+	// Where the test server is running.
+	testServerURL = "http://localhost:8788"
+
+	// Test zone and record names to use.
+	testZoneName = "mutelight.org"
+	testRecordName = "context.mutelight.org"
+	testRecordType = "CNAME"
+
+	// The simulated time for a slow request. The client will send one byte at
+	// a time and aim to make the entirety of the dispatch take this long.
+	targetSlowDuration = 3 * time.Second
+)
+
+//////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// Types
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
+
+// RecordType is the type of a DNS record (e.g. A, CNAME).
+type RecordType string
+
+type putRecordParams struct {
+	RecordType RecordType `json:"type"`
+}
+
+type slowReader struct {
+	Data []byte
+	TargetDuration  time.Duration
+
+	pos int
+}
+
+func (r *slowReader) Read(data []byte) (int, error) {
+	if r.pos >= len(r.Data) {
+		return 0, io.EOF
+	}
+
+	if len(data) < 1 {
+		return 0, fmt.Errorf("cannot reading into zero-byte slice")
+	}
+
+	timePerByte := time.Duration(int64(r.TargetDuration) / int64(len(r.Data)))
+	time.Sleep(timePerByte)
+	
+	data[0] = r.Data[r.pos]
+
+	fmt.Printf("read one byte slowly (slept %v) (pos %v) (%s)\n",
+		timePerByte, r.pos, string(data[0]))
+
+	r.pos = r.pos + 1
+	return 1, nil
+}
+
+//////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// Helper functions
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////
+
 func makeRequest() error {
 	params := &putRecordParams{RecordType: RecordTypeCNAME}
 
@@ -48,70 +150,4 @@ func makeRequest() error {
 	fmt.Printf("response = %s", string(respData))
 
 	return nil
-}
-
-func main() {
-	err := makeRequest()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%+v", err)
-		os.Exit(1)
-	}
-}
-
-//
-// Helpers
-//
-
-// Constants for common record types.
-const (
-	RecordTypeCNAME RecordType = "CNAME"
-)
-
-const (
-	// Where the test server is running.
-	testServerURL = "http://localhost:8788"
-
-	// Test zone and record names to use.
-	testZoneName = "mutelight.org"
-	testRecordName = "context.mutelight.org"
-	testRecordType = "CNAME"
-
-	// The simulated time for a slow request. The client will send one byte at
-	// a time and aim to make the entirety of the dispatch take this long.
-	targetSlowDuration = 3 * time.Second
-)
-
-// RecordType is the type of a DNS record (e.g. A, CNAME).
-type RecordType string
-
-type putRecordParams struct {
-	RecordType RecordType `json:"type"`
-}
-
-type slowReader struct {
-	Data []byte
-	TargetDuration  time.Duration
-
-	pos int
-}
-
-func (r *slowReader) Read(data []byte) (int, error) {
-	if r.pos >= len(r.Data) {
-		return 0, io.EOF
-	}
-
-	if len(data) < 1 {
-		return 0, fmt.Errorf("cannot reading into zero-byte slice")
-	}
-
-	timePerByte := time.Duration(int64(r.TargetDuration) / int64(len(r.Data)))
-	time.Sleep(timePerByte)
-	
-	data[0] = r.Data[r.pos]
-
-	fmt.Printf("read one byte slowly (slept %v) (pos %v) (%s)\n",
-		timePerByte, r.pos, string(data[0]))
-
-	r.pos = r.pos + 1
-	return 1, nil
 }
