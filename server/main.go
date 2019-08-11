@@ -29,7 +29,8 @@ func main() {
 	defer db.Close()
 
 	router := httprouter.New()
-	router.PUT("/zones/:zone/records/:record", handlerWrapper(putRecord))
+	router.PUT("/zones/:zone/records/:record",
+		handlerWrapper(putRecord, &putRecordParams{}))
 
 	log.Fatal(http.ListenAndServe(":8788", router))
 }
@@ -51,6 +52,11 @@ type putRecordParams struct {
 	Value      string     `json:"value"`
 }
 
+// Empty creates a new, empty version of parameters that can be decoded to.
+func (*putRecordParams) Empty() BodyParams {
+	return &putRecordParams{}
+}
+
 type putRecordResponse struct {
 	Name       string     `json:"name"`
 	RecordType RecordType `json:"type"`
@@ -61,25 +67,9 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 	zoneName := state.RouteParams.ByName("zone")
 	recordName := state.RouteParams.ByName("record")
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
-	defer r.Body.Close()
+	params := state.BodyParams.(*putRecordParams)
 
-	data, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return nil, APIErrorBodyRead.WithInternalError(err)
-	}
-
-	if len(data) == 0 {
-		return nil, APIErrorBodyEmpty
-	}
-
-	var params putRecordParams
-	err = json.Unmarshal(data, &params)
-	if err != nil {
-		return nil, APIErrorBodyDecode.WithInternalError(err)
-	}
-
-	err = state.DB.RunInTransaction(func(tx *pg.Tx) error {
+	err := state.DB.RunInTransaction(func(tx *pg.Tx) error {
 		var zone *Zone
 		err := maybeEarlyCancelDB(state, func() error {
 			zone = &Zone{
@@ -215,6 +205,13 @@ func (e *APIError) WithInternalError(internalErr error) *APIError {
 	return &APIError{e.StatusCode, e.Message, internalErr}
 }
 
+// BodyParams is an interface containing parameters sent to an API method as
+// part of a request body.
+type BodyParams interface {
+	// Empty creates a new, empty version of parameters that can be decoded to.
+	Empty() BodyParams
+}
+
 // Record represents a single DNS record within a zone.
 type Record struct {
 	ID         int64
@@ -241,6 +238,7 @@ type RequestInfo struct {
 
 // RequestState contains key data for an active request.
 type RequestState struct {
+	BodyParams  BodyParams
 	Ctx         context.Context
 	CtxCancel   func()
 	DB          *pg.DB
@@ -259,7 +257,7 @@ type Zone struct {
 	tableName struct{} `sql:"zone"`
 }
 
-func handlerWrapper(handler handler) httprouter.Handle {
+func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, routeParams httprouter.Params) {
 		ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 		defer cancel()
@@ -286,6 +284,37 @@ func handlerWrapper(handler handler) httprouter.Handle {
 			DB:          ctxDB,
 			RequestInfo: requestInfo,
 			RouteParams: routeParams,
+		}
+
+		if bodyParams != nil {
+			// To protect against a malicious request with an unbounded request
+			// body (which could overflow memory), make sure to institute a maximum
+			// length that we're willing to read.
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+
+			data, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				renderError(w, requestInfo,
+					APIErrorBodyRead.WithInternalError(err))
+				return
+			}
+			r.Body.Close()
+
+			if len(data) == 0 {
+				renderError(w, requestInfo,
+					APIErrorBodyEmpty)
+				return
+			}
+
+			bodyParamsDup := bodyParams.Empty()
+			err = json.Unmarshal(data, bodyParamsDup)
+			if err != nil {
+				renderError(w, requestInfo,
+					APIErrorBodyDecode.WithInternalError(err))
+				return
+			}
+
+			state.BodyParams = bodyParamsDup
 		}
 
 		resp, err := handler(w, r, state)
