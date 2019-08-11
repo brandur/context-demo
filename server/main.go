@@ -132,11 +132,11 @@ var db *pg.DB
 
 // Common API errors for consistency and quick access.
 var (
-	APIErrorBodyDecode  = &APIError{StatusCode: http.StatusBadRequest, Message: "Error parsing request body to JSON"}
-	APIErrorBodyEmpty   = &APIError{StatusCode: http.StatusBadRequest, Message: "Empty request body"}
-	APIErrorBodyRead    = &APIError{StatusCode: http.StatusBadRequest, Message: "Error reading request body"}
-	APIErrorEarlyCancel = &APIError{StatusCode: http.StatusServiceUnavailable, Message: "Request timed out"}
-	APIErrorTimeout     = &APIError{StatusCode: http.StatusServiceUnavailable, Message: "Request timed out"}
+	APIErrorBodyDecode  = &APIError{http.StatusBadRequest, "Error parsing request body to JSON", nil}
+	APIErrorBodyEmpty   = &APIError{http.StatusBadRequest, "Empty request body", nil}
+	APIErrorBodyRead    = &APIError{http.StatusBadRequest, "Error reading request body", nil}
+	APIErrorEarlyCancel = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
+	APIErrorTimeout     = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
 )
 
 const httpTimeout = 2 * time.Second
