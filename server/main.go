@@ -202,7 +202,7 @@ func (e *APIError) MarshalJSON() ([]byte, error) {
 		Message:    e.Message,
 	}
 
-	if e.internalErr != nil {
+	if e.internalErr != nil && e.StatusCode != http.StatusInternalServerError {
 		// `errors.Cause` just returns the inner error instead of the entirety
 		// of the context
 		dupErr.Message += " (" + errors.Cause(e.internalErr).Error() + ")"
