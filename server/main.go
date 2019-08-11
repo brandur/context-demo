@@ -40,7 +40,11 @@ func main() {
 
 // handler is the internal signature for an HTTP handler which includes a
 // RequestState.
-type handler func(w http.ResponseWriter, r *http.Request, state *RequestState) error
+//
+// Handlers should return either an object that should be encoded to JSON for a
+// 200 response (emitted as `interface{}`) or an error. The caller should also
+// encode an error response to JSON.
+type handler func(w http.ResponseWriter, r *http.Request, state *RequestState) (interface{}, error)
 
 type putRecordParams struct {
 	RecordType RecordType `json:"type"`
@@ -53,7 +57,7 @@ type putRecordResponse struct {
 	Value      string     `json:"value"`
 }
 
-func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) error {
+func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (interface{}, error) {
 	zoneName := state.RouteParams.ByName("zone")
 	recordName := state.RouteParams.ByName("record")
 
@@ -62,17 +66,17 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		return APIErrorBodyRead.WithInternalError(err)
+		return nil, APIErrorBodyRead.WithInternalError(err)
 	}
 
 	if len(data) == 0 {
-		return APIErrorBodyEmpty
+		return nil, APIErrorBodyEmpty
 	}
 
 	var params putRecordParams
 	err = json.Unmarshal(data, &params)
 	if err != nil {
-		return APIErrorBodyDecode.WithInternalError(err)
+		return nil, APIErrorBodyDecode.WithInternalError(err)
 	}
 
 	err = state.DB.RunInTransaction(func(tx *pg.Tx) error {
@@ -123,23 +127,14 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "error in transaction")
+		return nil, errors.Wrap(err, "error in transaction")
 	}
 
-	resp := &putRecordResponse{
+	return &putRecordResponse{
 		Name:       recordName,
 		RecordType: params.RecordType,
 		Value:      params.Value,
-	}
-	respData, err := json.Marshal(&resp)
-	if err != nil {
-		return errors.Wrap(err, "error encoding response")
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Write(respData)
-
-	return nil
+	}, nil
 }
 
 //
@@ -290,14 +285,24 @@ func handlerWrapper(handler handler) httprouter.Handle {
 			RouteParams: routeParams,
 		}
 
-		err := handler(w, r, state)
+		resp, err := handler(w, r, state)
 		if err != nil {
 			renderError(w, requestInfo,
 				errors.Wrap(err, "error serving HTTP request"))
 			return
 		}
 
+		respData, err := json.Marshal(resp)
+		if err != nil {
+			renderError(w, requestInfo,
+				errors.Wrap(err, "error encoding response"))
+			return
+		}
+
 		requestInfo.StatusCode = http.StatusOK
+
+		w.WriteHeader(http.StatusOK)
+		w.Write(respData)
 	}
 }
 
