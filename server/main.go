@@ -178,7 +178,7 @@ type APIError struct {
 	Message    string `json:"message"`
 
 	// internalErr is an internal occur that occurred in the case of a 500.
-	internalErr error `json:"-"`
+	internalErr error
 }
 
 // Error returns a human-readable error string.
@@ -333,8 +333,17 @@ func renderError(w http.ResponseWriter, info *RequestInfo, err error) {
 	info.APIError = apiErr
 	info.StatusCode = apiErr.StatusCode
 
+	data, err := json.Marshal(apiErr)
+	if err != nil {
+		log.Errorf("Error encoding API error (very bad): %v", err)
+
+		// Fall back to just sending back the string message. This is bad when
+		// the client is expecting JSON, but it should never happen.
+		data = []byte(apiErr.Message)
+	}
+
 	w.WriteHeader(apiErr.StatusCode)
-	fmt.Fprintf(w, apiErr.Message)
+	w.Write(data)
 }
 
 func shouldEarlyCancel(ctx context.Context, threshold time.Duration) bool {
