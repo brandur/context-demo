@@ -130,6 +130,9 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 // Helpers
 //
 
+// Global database connection pool initialized by the core of the program. API
+// handlers should never use this, and exclusively use the context-based
+// version passed to them as part of `RequestState`.
 var db *pg.DB
 
 // Common API errors for consistency and quick access.
