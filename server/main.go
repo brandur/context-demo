@@ -35,8 +35,6 @@ func main() {
 // Handlers
 //
 
-const httpTimeout = 10 * time.Second
-
 func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
@@ -59,6 +57,10 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	recordName := ps.ByName("record")
 
 	err := ctxDB.RunInTransaction(func(tx *pg.Tx) error {
+		if shouldEarlyCancel(ctx, earlyCancelThresholdDB) {
+			return fmt.Errorf("Early cancel")
+		}
+
 		var zone *Zone
 		{
 			zone = &Zone{
@@ -108,6 +110,12 @@ func putRecord(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 
 var db *pg.DB
 
+const httpTimeout = 10 * time.Second
+
+const (
+	earlyCancelThresholdDB = 5 * time.Millisecond
+)
+
 // Constants for common record types.
 const (
 	RecordTypeCNAME RecordType = "CNAME"
@@ -150,4 +158,13 @@ func render500(w http.ResponseWriter, err error) {
 
 	w.WriteHeader(http.StatusInternalServerError)
 	fmt.Fprintf(w, "Internal server error")
+}
+
+func shouldEarlyCancel(ctx context.Context, threshold time.Duration) bool {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+
+	return time.Now().After(deadline.Add(-threshold))
 }
