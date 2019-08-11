@@ -81,7 +81,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 
 	err = state.DB.RunInTransaction(func(tx *pg.Tx) error {
 		var zone *Zone
-		err := maybeEarlyCancelDB(state.Ctx, func() error {
+		err := maybeEarlyCancelDB(state, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
@@ -101,7 +101,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			return err
 		}
 
-		err = maybeEarlyCancelDB(state.Ctx, func() error {
+		err = maybeEarlyCancelDB(state, func() error {
 			record := &Record{
 				Name:       recordName,
 				RecordType: params.RecordType,
@@ -242,6 +242,7 @@ type RequestInfo struct {
 // RequestState contains key data for an active request.
 type RequestState struct {
 	Ctx         context.Context
+	CtxCancel   func()
 	DB          *pg.DB
 	RequestInfo *RequestInfo
 	RouteParams httprouter.Params
@@ -281,6 +282,7 @@ func handlerWrapper(handler handler) httprouter.Handle {
 
 		state := &RequestState{
 			Ctx:         ctx,
+			CtxCancel:   cancel,
 			DB:          ctxDB,
 			RequestInfo: requestInfo,
 			RouteParams: routeParams,
@@ -309,9 +311,9 @@ func handlerWrapper(handler handler) httprouter.Handle {
 
 // Runs a database call unless the request has taken a long time and we're too
 // close to the early cancellation threshold.
-func maybeEarlyCancelDB(ctx context.Context, f func() error) error {
-	if shouldEarlyCancel(ctx, earlyCancelThresholdDB) {
-		// TODO: ctx.Cancel()
+func maybeEarlyCancelDB(state *RequestState, f func() error) error {
+	if shouldEarlyCancel(state.Ctx, earlyCancelThresholdDB) {
+		state.CtxCancel()
 		return APIErrorEarlyCancel
 	}
 
