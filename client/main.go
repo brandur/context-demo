@@ -53,7 +53,7 @@ func makeRequest() error {
 func main() {
 	err := makeRequest()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, err.Error())
+		fmt.Fprintf(os.Stderr, "%+v", err)
 		os.Exit(1)
 	}
 }
