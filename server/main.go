@@ -174,16 +174,42 @@ const (
 
 // APIError represents an error to return from the API.
 type APIError struct {
-	StatusCode int
-	Message    string
+	StatusCode int    `json:"status"`
+	Message    string `json:"message"`
 
 	// internalErr is an internal occur that occurred in the case of a 500.
-	internalErr error
+	internalErr error `json:"-"`
 }
 
 // Error returns a human-readable error string.
 func (e *APIError) Error() string {
 	return fmt.Sprintf("API error status %v: %s", e.StatusCode, e.Message)
+}
+
+// MarshalJSON provides a custom JSON encoding implementation for APIError.
+//
+// It works almost the same as standard encoding would except that in the case
+// of a non-500 error that's carrying an internal error, we include the cause
+// line of that internal error, which gives the user a little more context on
+// what went wrong. So for example if we had a JSON decoding error, we'd print
+// the specific error that Go produced along with our generic message about a
+// body decoding problem.
+func (e *APIError) MarshalJSON() ([]byte, error) {
+	type apiError APIError
+
+	dupErr := &apiError{
+		StatusCode: e.StatusCode,
+		Message:    e.Message,
+	}
+
+	if e.internalErr != nil {
+		// `errors.Cause` just returns the inner error instead of the entirety
+		// of the context
+		dupErr.Message += " (" + errors.Cause(e.internalErr).Error() + ")"
+	}
+
+	return json.Marshal(dupErr)
+
 }
 
 // WithInternalError duplicates the given APIError and adds the given internal
