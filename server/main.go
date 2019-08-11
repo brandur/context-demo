@@ -90,7 +90,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 				Returning("*").
 				Insert()
 			if err != nil {
-				return errors.Wrap(err, "zone upsert failed")
+				return errors.Wrap(err, "error upserting zone")
 			}
 
 			return nil
@@ -112,7 +112,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 				Returning("*").
 				Insert()
 			if err != nil {
-				return errors.Wrap(err, "record upsert failed")
+				return errors.Wrap(err, "error upserting record")
 			}
 
 			return nil
@@ -124,7 +124,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "transaction failed")
+		return errors.Wrap(err, "error in transaction")
 	}
 
 	w.WriteHeader(http.StatusOK)
