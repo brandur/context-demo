@@ -50,7 +50,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) erro
 	zoneName := state.RouteParams.ByName("zone")
 	recordName := state.RouteParams.ByName("record")
 
-	r.Body = http.MaxBytesReader(w, r.Body, 64 * 1024)
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	defer r.Body.Close()
 
 	data, err := ioutil.ReadAll(r.Body)
@@ -146,6 +146,10 @@ var (
 )
 
 const httpTimeout = 10 * time.Second
+
+// Maximum body size (in bytes) to protect against endless streams sent via
+// request body.
+const maxRequestBodySize = 64 * 1024
 
 const (
 	earlyCancelThresholdDB = 5 * time.Millisecond
