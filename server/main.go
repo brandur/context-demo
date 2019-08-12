@@ -148,14 +148,6 @@ const (
 )
 
 const (
-	// The preemptive cancellation threshold to allow for database calls. If
-	// we're within this much time of a request's deadline and we're about to
-	// make a database call, cancel the request instead. This allows us to
-	// avoid doing anymore work for a request that's unlikely to succeed.
-	preemptiveCancelThresholdDB = 5 * time.Millisecond
-
-	preemptiveCancelThresholdHandlerStart = 2 * time.Second
-
 	// The amount of time to allow for an HTTP API call before it times out and
 	// cancels.
 	httpTimeout = 3 * time.Second
@@ -163,6 +155,22 @@ const (
 	// Maximum body size (in bytes) to protect against endless streams sent via
 	// request body.
 	maxRequestBodySize = 64 * 1024
+)
+
+// Preemptive cancellation thresholds for various types of operations. If
+// we're within this much time of a request's deadline and we're about to
+// engage in something we know to be relatively expensive, cancel the
+// request instead. This allows us to avoid doing anymore work for a
+// request that's unlikely to succeed.
+//
+// The specific thresholds for each operation depend on how long we can
+// generally expect it to take. We can expect calling out to an external
+// service across a network to be more expensive than a database call for
+// example, so the former has a higher threshold, meaning that we'll cancel
+// preemptively more aggressively.
+const (
+	preemptiveCancelThresholdDB           = 5 * time.Millisecond
+	preemptiveCancelThresholdHandlerStart = 2 * time.Second
 )
 
 //////////////////////////////////////////////////////////////////////////////
@@ -182,12 +190,12 @@ var db *pg.DB
 
 // Common API errors for consistency and quick access.
 var (
-	APIErrorBodyDecode  = &APIError{http.StatusBadRequest, "Error parsing request body to JSON", nil}
-	APIErrorBodyEmpty   = &APIError{http.StatusBadRequest, "Empty request body", nil}
-	APIErrorBodyRead    = &APIError{http.StatusBadRequest, "Error reading request body", nil}
+	APIErrorBodyDecode       = &APIError{http.StatusBadRequest, "Error parsing request body to JSON", nil}
+	APIErrorBodyEmpty        = &APIError{http.StatusBadRequest, "Empty request body", nil}
+	APIErrorBodyRead         = &APIError{http.StatusBadRequest, "Error reading request body", nil}
 	APIErrorPreemptiveCancel = &APIError{http.StatusServiceUnavailable, "Request timed out (cancelled preemptively)", nil}
-	APIErrorInternal    = &APIError{http.StatusInternalServerError, "Internal server error", nil}
-	APIErrorTimeout     = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
+	APIErrorInternal         = &APIError{http.StatusInternalServerError, "Internal server error", nil}
+	APIErrorTimeout          = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
 )
 
 //////////////////////////////////////////////////////////////////////////////
