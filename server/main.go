@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/go-pg/pg/v9"
+	"github.com/julienschmidt/httprouter"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"github.com/julienschmidt/httprouter"
 )
 
 //////////////////////////////////////////////////////////////////////////////

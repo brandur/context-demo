@@ -50,7 +50,7 @@ const (
 	testServerURL = "http://localhost:8788"
 
 	// Test zone and record names to use.
-	testZoneName = "mutelight.org"
+	testZoneName   = "mutelight.org"
 	testRecordName = "context.mutelight.org"
 	testRecordType = "CNAME"
 
@@ -77,8 +77,8 @@ type putRecordParams struct {
 }
 
 type slowReader struct {
-	Data []byte
-	TargetDuration  time.Duration
+	Data           []byte
+	TargetDuration time.Duration
 
 	pos int
 }
@@ -94,7 +94,7 @@ func (r *slowReader) Read(data []byte) (int, error) {
 
 	timePerByte := time.Duration(int64(r.TargetDuration) / int64(len(r.Data)))
 	time.Sleep(timePerByte)
-	
+
 	data[0] = r.Data[r.pos]
 
 	fmt.Printf("read one byte slowly (slept %v) (pos %v) (%s)\n",
@@ -123,7 +123,7 @@ func makeRequest() error {
 	}
 
 	reader := &slowReader{
-		Data: data,
+		Data:           data,
 		TargetDuration: targetSlowDuration,
 	}
 
