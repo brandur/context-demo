@@ -1,0 +1,30 @@
+language: go
+
+go:
+  - 1.13
+
+before_install:
+  - travis_retry go get -u github.com/golang/lint/golint
+
+script:
+  # bail after a single failure
+  - set -e
+
+  # need to be in the directory for the Go module system to work
+  - pushd server/
+  - go test -v ./...
+  - popd
+
+  - pushd client/
+  - go test -v ./...
+  - popd
+
+  # so far these don't care about Go modules so just run them at root
+  - scripts/check_gofmt.sh
+  - golint -set_exit_status ./...
+
+  - set -e
+
+notifications:
+  email:
+    on_success: never
