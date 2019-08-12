@@ -273,7 +273,7 @@ type BodyParams interface {
 // Conf is server configuration read in from environmental variables.
 type Conf struct {
 	DatabaseURL string `env:"DATABASE_URL,required"`
-	Port        uint16 `env:"SERVER_PORT,default=8788"`
+	Port        uint16 `env:"PORT,default=8788"`
 }
 
 // Record represents a single DNS record within a zone.
