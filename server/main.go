@@ -38,7 +38,9 @@ func main() {
 	router.PUT("/zones/:zone/records/:record",
 		handlerWrapper(putRecord, &putRecordParams{}))
 
-	log.Fatal(http.ListenAndServe(":8788", router))
+	port := 8788
+	log.Infof("Starting server on %v", port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%v", port), router))
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -74,7 +76,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 
 	err := state.DB.RunInTransaction(func(tx *pg.Tx) error {
 		var zone *Zone
-		err := maybeEarlyCancelDB(state, func() error {
+		err := maybePreemptiveCancelDB(state, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
@@ -94,7 +96,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			return err
 		}
 
-		err = maybeEarlyCancelDB(state, func() error {
+		err = maybePreemptiveCancelDB(state, func() error {
 			record := &Record{
 				Name:       recordName,
 				RecordType: bodyParams.RecordType,
@@ -146,15 +148,17 @@ const (
 )
 
 const (
-	// The early cancellation threshold to allow for database calls. If we're
-	// within this much time of a request's deadline and we're about to make a
-	// database call, cancel the request instead. This allows us to avoid doing
-	// anymore work for a request that's unlikely to succeed.
-	earlyCancelThresholdDB = 5 * time.Millisecond
+	// The preemptive cancellation threshold to allow for database calls. If
+	// we're within this much time of a request's deadline and we're about to
+	// make a database call, cancel the request instead. This allows us to
+	// avoid doing anymore work for a request that's unlikely to succeed.
+	preemptiveCancelThresholdDB = 5 * time.Millisecond
+
+	preemptiveCancelThresholdHandlerStart = 2 * time.Second
 
 	// The amount of time to allow for an HTTP API call before it times out and
 	// cancels.
-	httpTimeout = 2 * time.Second
+	httpTimeout = 3 * time.Second
 
 	// Maximum body size (in bytes) to protect against endless streams sent via
 	// request body.
@@ -181,7 +185,7 @@ var (
 	APIErrorBodyDecode  = &APIError{http.StatusBadRequest, "Error parsing request body to JSON", nil}
 	APIErrorBodyEmpty   = &APIError{http.StatusBadRequest, "Empty request body", nil}
 	APIErrorBodyRead    = &APIError{http.StatusBadRequest, "Error reading request body", nil}
-	APIErrorEarlyCancel = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
+	APIErrorPreemptiveCancel = &APIError{http.StatusServiceUnavailable, "Request timed out (cancelled preemptively)", nil}
 	APIErrorInternal    = &APIError{http.StatusInternalServerError, "Internal server error", nil}
 	APIErrorTimeout     = &APIError{http.StatusServiceUnavailable, "Request timed out", nil}
 )
@@ -357,8 +361,7 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 			r.Body.Close()
 
 			if len(data) == 0 {
-				renderError(w, requestInfo,
-					APIErrorBodyEmpty)
+				renderError(w, requestInfo, APIErrorBodyEmpty)
 				return
 			}
 
@@ -371,6 +374,16 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 			}
 
 			state.BodyParams = bodyParamsDup
+		}
+
+		// If we're within a certain deadline threshold before even starting
+		// the handler then cancel preemptively. This could occur, for
+		// example, if the client's connection is very slow and it took them a
+		// long time to stream their request body to us.
+		if shouldPreemptiveCancel(state.Ctx, preemptiveCancelThresholdHandlerStart) {
+			state.CtxCancel()
+			renderError(w, requestInfo, APIErrorPreemptiveCancel)
+			return
 		}
 
 		resp, err := handler(w, r, state)
@@ -395,11 +408,11 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 }
 
 // Runs a database call unless the request has taken a long time and we're too
-// close to the early cancellation threshold.
-func maybeEarlyCancelDB(state *RequestState, f func() error) error {
-	if shouldEarlyCancel(state.Ctx, earlyCancelThresholdDB) {
+// close to the preemptive cancellation threshold.
+func maybePreemptiveCancelDB(state *RequestState, f func() error) error {
+	if shouldPreemptiveCancel(state.Ctx, preemptiveCancelThresholdDB) {
 		state.CtxCancel()
-		return APIErrorEarlyCancel
+		return APIErrorPreemptiveCancel
 	}
 
 	return f()
@@ -447,7 +460,7 @@ func renderError(w http.ResponseWriter, info *RequestInfo, err error) {
 	w.Write(data)
 }
 
-func shouldEarlyCancel(ctx context.Context, threshold time.Duration) bool {
+func shouldPreemptiveCancel(ctx context.Context, threshold time.Duration) bool {
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		return true
