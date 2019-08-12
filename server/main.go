@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-pg/pg/v9"
+	"github.com/joeshaw/envdecode"
 	"github.com/julienschmidt/httprouter"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -25,9 +26,14 @@ import (
 //////////////////////////////////////////////////////////////////////////////
 
 func main() {
+	err := envdecode.Decode(&conf)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "error reading configuration"))
+	}
+
 	opts, err := pg.ParseURL("postgres://brandur@localhost:5432/context-demo?sslmode=disable")
 	if err != nil {
-		panic("Couldn't parse connection string")
+		log.Fatal(errors.Wrap(err, "error parsing connection string"))
 	}
 
 	db = pg.Connect(opts)
@@ -37,9 +43,8 @@ func main() {
 	router.PUT("/zones/:zone/records/:record",
 		handlerWrapper(putRecord, &putRecordParams{}))
 
-	port := 8788
-	log.Infof("Starting server on %v", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%v", port), router))
+	log.Infof("Starting server on %v", conf.Port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%v", conf.Port), router))
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -182,6 +187,9 @@ const (
 //
 //////////////////////////////////////////////////////////////////////////////
 
+// Server configuration read in from environmental variables.
+var conf Conf
+
 // Global database connection pool initialized by the core of the program. API
 // handlers should never use this, and exclusively use the context-based
 // version passed to them as part of `RequestState`.
@@ -260,6 +268,11 @@ func (e *APIError) WithInternalError(internalErr error) *APIError {
 type BodyParams interface {
 	// Empty creates a new, empty version of parameters that can be decoded to.
 	Empty() BodyParams
+}
+
+// Conf is server configuration read in from environmental variables.
+type Conf struct {
+	Port      uint16 `env:"SERVER_PORT,default=8788"`
 }
 
 // Record represents a single DNS record within a zone.
