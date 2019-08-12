@@ -4,7 +4,7 @@ go:
   - 1.12
 
 before_install:
-  - travis_retry go get -u github.com/golang/lint/golint
+  - travis_retry go get -u golang.org/x/lint/golint
 
 script:
   # bail after a single failure
