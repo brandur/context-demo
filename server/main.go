@@ -191,7 +191,8 @@ var db *pg.DB
 // Common API errors for consistency and quick access.
 var (
 	APIErrorBodyDecode       = &APIError{http.StatusBadRequest, "Error parsing request body to JSON", nil}
-	APIErrorBodyEmpty        = &APIError{http.StatusBadRequest, "Empty request body", nil}
+	APIErrorBodyEmpty        = &APIError{http.StatusBadRequest, "Request body was empty", nil}
+	APIErrorBodyMax          = &APIError{http.StatusBadRequest, "Request body was too long", nil}
 	APIErrorBodyRead         = &APIError{http.StatusBadRequest, "Error reading request body", nil}
 	APIErrorPreemptiveCancel = &APIError{http.StatusServiceUnavailable, "Request timed out (cancelled preemptively)", nil}
 	APIErrorInternal         = &APIError{http.StatusInternalServerError, "Internal server error", nil}
@@ -370,6 +371,14 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 
 			if len(data) == 0 {
 				renderError(w, requestInfo, APIErrorBodyEmpty)
+				return
+			}
+
+			// If we actually hit maximum size then it's likely that the JSON
+			// decoding is going to fail with a confusing error so send a
+			// specialized message back.
+			if len(data) == maxRequestBodySize {
+				renderError(w, requestInfo, APIErrorBodyMax)
 				return
 			}
 
