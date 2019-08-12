@@ -11,3 +11,10 @@ psql context-demo < schema/schema.sql
 cd server
 go run main.go
 ```
+
+## Client
+
+``` sh
+cd client
+go run main.go
+```
