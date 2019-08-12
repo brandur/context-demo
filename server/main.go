@@ -31,7 +31,7 @@ func main() {
 		log.Fatal(errors.Wrap(err, "error reading configuration"))
 	}
 
-	opts, err := pg.ParseURL("postgres://brandur@localhost:5432/context-demo?sslmode=disable")
+	opts, err := pg.ParseURL(conf.DatabaseURL)
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "error parsing connection string"))
 	}
@@ -272,7 +272,8 @@ type BodyParams interface {
 
 // Conf is server configuration read in from environmental variables.
 type Conf struct {
-	Port      uint16 `env:"SERVER_PORT,default=8788"`
+	DatabaseURL string `env:"DATABASE_URL,required"`
+	Port        uint16 `env:"SERVER_PORT,default=8788"`
 }
 
 // Record represents a single DNS record within a zone.
