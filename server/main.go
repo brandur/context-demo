@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-pg/pg/v9"
@@ -79,8 +80,14 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 	bodyParams := state.BodyParams.(*putRecordParams)
 
 	err := state.DB.RunInTransaction(func(tx *pg.Tx) error {
+		var res cloudflareGetZoneResponse
+		err := makeCloudflareAPICall(http.MethodGet, "/zones?name="+zoneName, &res)
+		if err != nil {
+			return errors.Wrap(err, "error retrieving Coudflare zone")
+		}
+
 		var zone *Zone
-		err := maybePreemptiveCancelDB(state, func() error {
+		err = maybePreemptiveCancelDB(state, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
@@ -437,6 +444,89 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 		w.WriteHeader(http.StatusOK)
 		w.Write(respData)
 	}
+}
+
+const (
+	cloudflareAPIURL = "https://api.cloudflare.com/client/v4"
+)
+
+// Go error implementation containing a set of Cloudflare API errors.
+type cloudflareError struct {
+	errors []*cloudflareErrorItem
+}
+
+// Error returns a human-readable version of the error.
+func (e *cloudflareError) Error() string {
+	errorStrings := make([]string, len(e.errors))
+	for i, item := range e.errors {
+		errorStrings[i] = fmt.Sprintf("Code %v: %s", item.Code, item.Message)
+	}
+
+	return fmt.Sprintf("errors from cloudflare API: %+v",
+		strings.Join(errorStrings, "; "))
+}
+
+// Single Cloudflare API error that may be returned as part of a response.
+type cloudflareErrorItem struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// Generic Cloudflare API response that may include a set of errors.
+type cloudflareGenericResponse struct {
+	Errors []*cloudflareErrorItem `json:"errors"`
+}
+
+type cloudflareGetZoneResponse struct {
+	Result []*cloudflareGetZoneResult `json:"result"`
+}
+
+type cloudflareGetZoneResult struct {
+	Name string `json:"name"`
+}
+
+func makeCloudflareAPICall(method, path string, res interface{}) error {
+	client := http.Client{}
+
+	req, err := http.NewRequest(method, cloudflareAPIURL+path, nil)
+	if err != nil {
+		return errors.Wrap(err, "error creating Cloudflare API request")
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Auth-Email", conf.CloudflareEmail)
+	req.Header.Set("X-Auth-Key", conf.CloudflareToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "error making Cloudflare API request")
+	}
+
+	defer resp.Body.Close()
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return errors.Wrap(err, "error reading Cloudflare API response body")
+	}
+
+	// Do a very basic decoding of response to see whether there are any
+	// errors.
+	var genericRes cloudflareGenericResponse
+	err = json.Unmarshal(data, &genericRes)
+	if err != nil {
+		return errors.Wrap(err, "error decoding Cloudflare API response (generic)")
+	}
+
+	if len(genericRes.Errors) > 0 {
+		return &cloudflareError{errors: genericRes.Errors}
+	}
+
+	// Then do the full decoding with the value sent by user.
+	err = json.Unmarshal(data, res)
+	if err != nil {
+		return errors.Wrap(err, "error decoding Cloudflare API response")
+	}
+
+	return nil
 }
 
 // Runs a database call unless the request has taken a long time and we're too
