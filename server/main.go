@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -80,14 +82,30 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 	bodyParams := state.BodyParams.(*putRecordParams)
 
 	err := state.DB.RunInTransaction(func(tx *pg.Tx) error {
-		var res cloudflareGetZoneResponse
-		err := makeCloudflareAPICall(http.MethodGet, "/zones?name="+zoneName, &res)
-		if err != nil {
-			return errors.Wrap(err, "error retrieving Coudflare zone")
+		var cloudflareZoneID string
+		{
+			var res cloudflareGetZoneResponse
+			err := makeCloudflareAPICall(http.MethodGet, "/zones?name="+zoneName,
+				nil, &res)
+			if err != nil {
+				return errors.Wrap(err, "error retrieving Coudflare zone")
+			}
+
+			if len(res.Result) > 0 {
+				cloudflareZoneID = res.Result[0].ID
+			}
+		}
+
+		if cloudflareZoneID == "" {
+			err := makeCloudflareAPICall(http.MethodPost, "/zones",
+				&cloudflareCreateZoneRequest{Name: zoneName}, nil)
+			if err != nil {
+				return errors.Wrap(err, "error creating Coudflare zone")
+			}
 		}
 
 		var zone *Zone
-		err = maybePreemptiveCancelDB(state, func() error {
+		err := maybePreemptiveCancelDB(state, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
@@ -472,9 +490,14 @@ type cloudflareErrorItem struct {
 	Message string `json:"message"`
 }
 
+type cloudflareCreateZoneRequest struct {
+	Name string `json:"name"`
+}
+
 // Generic Cloudflare API response that may include a set of errors.
 type cloudflareGenericResponse struct {
-	Errors []*cloudflareErrorItem `json:"errors"`
+	Errors  []*cloudflareErrorItem `json:"errors"`
+	Success bool                   `json:"success"`
 }
 
 type cloudflareGetZoneResponse struct {
@@ -482,13 +505,25 @@ type cloudflareGetZoneResponse struct {
 }
 
 type cloudflareGetZoneResult struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-func makeCloudflareAPICall(method, path string, res interface{}) error {
+func makeCloudflareAPICall(method, path string, params interface{}, res interface{}) error {
 	client := http.Client{}
 
-	req, err := http.NewRequest(method, cloudflareAPIURL+path, nil)
+	// Maybe send API parameters, but not every API call needs them.
+	var reader io.Reader
+	if params != nil {
+		data, err := json.Marshal(params)
+		if err != nil {
+			return errors.Wrap(err, "error encoding Cloudflare API parameters")
+		}
+
+		reader = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequest(method, cloudflareAPIURL+path, reader)
 	if err != nil {
 		return errors.Wrap(err, "error creating Cloudflare API request")
 	}
@@ -520,10 +555,13 @@ func makeCloudflareAPICall(method, path string, res interface{}) error {
 		return &cloudflareError{errors: genericRes.Errors}
 	}
 
-	// Then do the full decoding with the value sent by user.
-	err = json.Unmarshal(data, res)
-	if err != nil {
-		return errors.Wrap(err, "error decoding Cloudflare API response")
+	// Then do the full decoding with the value sent by user (if they requested
+	// it).
+	if res != nil {
+		err = json.Unmarshal(data, res)
+		if err != nil {
+			return errors.Wrap(err, "error decoding Cloudflare API response")
+		}
 	}
 
 	return nil
