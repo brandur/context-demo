@@ -1,2 +1,4 @@
+export CLOUDFLARE_EMAIL="foo@example.com"
+export CLOUDFLARE_TOKEN="complete-me"
 export DATABASE_URL="postgres://$USER@localhost:5432/context-demo?sslmode=disable"
 export PORT=8788

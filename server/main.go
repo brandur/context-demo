@@ -272,8 +272,10 @@ type BodyParams interface {
 
 // Conf is server configuration read in from environmental variables.
 type Conf struct {
-	DatabaseURL string `env:"DATABASE_URL,required"`
-	Port        uint16 `env:"PORT,default=8788"`
+	CloudflareEmail string `env:"CLOUDFLARE_EMAIL,required"`
+	CloudflareToken string `env:"CLOUDFLARE_TOKEN,required"`
+	DatabaseURL     string `env:"DATABASE_URL,required"`
+	Port            uint16 `env:"PORT,default=8788"`
 }
 
 // Record represents a single DNS record within a zone.
