@@ -84,7 +84,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 	err := state.DB.RunInTransaction(func(tx *pg.Tx) error {
 		var cloudflareZoneID string
 		{
-			var res cloudflareGetZoneResponse
+			var res cloudflareGetZonesResponse
 			err := makeCloudflareAPICall(http.MethodGet, "/zones?name="+zoneName,
 				nil, &res)
 			if err != nil {
@@ -490,6 +490,12 @@ type cloudflareErrorItem struct {
 	Message string `json:"message"`
 }
 
+type cloudflareCreateRecordRequest struct {
+	Content string     `json:"content"`
+	Name    string     `json:"name"`
+	Type    RecordType `json:"type"`
+}
+
 type cloudflareCreateZoneRequest struct {
 	Name string `json:"name"`
 }
@@ -500,11 +506,20 @@ type cloudflareGenericResponse struct {
 	Success bool                   `json:"success"`
 }
 
-type cloudflareGetZoneResponse struct {
-	Result []*cloudflareGetZoneResult `json:"result"`
+type cloudflareGetRecordsResponse struct {
+	Result []*cloudflareGetRecordsResult `json:"result"`
 }
 
-type cloudflareGetZoneResult struct {
+type cloudflareGetRecordsResult struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type cloudflareGetZonesResponse struct {
+	Result []*cloudflareGetZonesResult `json:"result"`
+}
+
+type cloudflareGetZonesResult struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
