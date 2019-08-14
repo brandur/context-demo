@@ -88,7 +88,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			err := makeCloudflareAPICall(http.MethodGet, "/zones?name="+zoneName,
 				nil, &res)
 			if err != nil {
-				return errors.Wrap(err, "error retrieving Coudflare zone")
+				return errors.Wrap(err, "error retrieving Coudflare zones")
 			}
 
 			if len(res.Result) > 0 {
@@ -123,6 +123,41 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		})
 		if err != nil {
 			return err
+		}
+
+		var cloudflareRecordID string
+		{
+			getRecordsPath := "/zones/" + cloudflareZoneID + "/dns_records?name=" + recordName
+			var res cloudflareGetRecordsResponse
+			err := makeCloudflareAPICall(http.MethodGet, getRecordsPath,
+				nil, &res)
+			if err != nil {
+				return errors.Wrap(err, "error retrieving Coudflare records")
+			}
+
+			if len(res.Result) > 0 {
+				cloudflareRecordID = res.Result[0].ID
+			}
+		}
+
+		{
+			upsertRecordMethod := http.MethodPost
+			upsertRecordPath := "/zones/" + cloudflareZoneID + "/dns_records"
+			if cloudflareRecordID != "" {
+				upsertRecordMethod = http.MethodPut
+				upsertRecordPath = "/zones/" + cloudflareZoneID + "/dns_records/" + cloudflareRecordID
+			}
+
+			err := makeCloudflareAPICall(upsertRecordMethod, upsertRecordPath,
+				&cloudflareCreateRecordRequest{
+					Content: bodyParams.Value,
+					Name:    zoneName,
+					Type:    RecordTypeCNAME,
+				},
+				nil)
+			if err != nil {
+				return errors.Wrap(err, "error creating or updating Coudflare record")
+			}
 		}
 
 		err = maybePreemptiveCancelDB(state, func() error {
