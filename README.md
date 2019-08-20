@@ -18,6 +18,12 @@ direnv allow
 go run main.go
 ```
 
+Run a cURL query against it:
+
+```
+curl -X PUT http://localhost:8788/zones/mutelight.org/records/context.mutelight.org -d '{"type":"CNAME","value":"brandur.org"}'
+```
+
 ## Client
 
 ``` sh
