@@ -132,7 +132,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			err := makeCloudflareAPICall(http.MethodGet, getRecordsPath,
 				nil, &res)
 			if err != nil {
-				return errors.Wrap(err, "error retrieving Coudflare records")
+				return errors.Wrap(err, "error retrieving Cloudflare record")
 			}
 
 			if len(res.Result) > 0 {
@@ -151,8 +151,8 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			err := makeCloudflareAPICall(upsertRecordMethod, upsertRecordPath,
 				&cloudflareCreateRecordRequest{
 					Content: bodyParams.Value,
-					Name:    zoneName,
-					Type:    RecordTypeCNAME,
+					Name:    recordName,
+					Type:    bodyParams.RecordType,
 				},
 				nil)
 			if err != nil {
@@ -208,6 +208,8 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 
 // Constants for common record types.
 const (
+	RecordTypeA     RecordType = "A"
+	RecordTypeAAAA  RecordType = "AAAA"
 	RecordTypeCNAME RecordType = "CNAME"
 )
 
@@ -503,22 +505,6 @@ const (
 	cloudflareAPIURL = "https://api.cloudflare.com/client/v4"
 )
 
-// Go error implementation containing a set of Cloudflare API errors.
-type cloudflareError struct {
-	errors []*cloudflareErrorItem
-}
-
-// Error returns a human-readable version of the error.
-func (e *cloudflareError) Error() string {
-	errorStrings := make([]string, len(e.errors))
-	for i, item := range e.errors {
-		errorStrings[i] = fmt.Sprintf("Code %v: %s", item.Code, item.Message)
-	}
-
-	return fmt.Sprintf("errors from cloudflare API: %+v",
-		strings.Join(errorStrings, "; "))
-}
-
 // Single Cloudflare API error that may be returned as part of a response.
 type cloudflareErrorItem struct {
 	Code    int    `json:"code"`
@@ -559,8 +545,18 @@ type cloudflareGetZonesResult struct {
 	Name string `json:"name"`
 }
 
+func flattenCloudflareErrorItems(errors []*cloudflareErrorItem) string {
+	errorStrings := make([]string, len(errors))
+	for i, item := range errors {
+		errorStrings[i] = fmt.Sprintf("Code %v: %s", item.Code, item.Message)
+	}
+	return strings.Join(errorStrings, "; ")
+}
+
 func makeCloudflareAPICall(method, path string, params interface{}, res interface{}) error {
 	client := http.Client{}
+
+	log.Debugf("Making Cloudflare API request: %s %s", method, path)
 
 	// Maybe send API parameters, but not every API call needs them.
 	var reader io.Reader
@@ -569,6 +565,8 @@ func makeCloudflareAPICall(method, path string, params interface{}, res interfac
 		if err != nil {
 			return errors.Wrap(err, "error encoding Cloudflare API parameters")
 		}
+
+		log.Infof("Payload data: %s", string(data))
 
 		reader = bytes.NewReader(data)
 	}
@@ -602,7 +600,11 @@ func makeCloudflareAPICall(method, path string, params interface{}, res interfac
 	}
 
 	if len(genericRes.Errors) > 0 {
-		return &cloudflareError{errors: genericRes.Errors}
+		return &APIError{
+			StatusCode: http.StatusBadRequest,
+			Message: fmt.Sprintf("Errors from CloudFlare: %+v",
+				flattenCloudflareErrorItems(genericRes.Errors)),
+		}
 	}
 
 	// Then do the full decoding with the value sent by user (if they requested
@@ -629,18 +631,19 @@ func maybePreemptiveCancelDB(state *RequestState, f func() error) error {
 }
 
 func renderError(w http.ResponseWriter, info *RequestInfo, err error) {
-	// Some special cases for common error that may occur inwards from our
-	// stack which we want to convert to something more user-friendly.
-	//
 	// `errors.Cause` unwraps an original error that might be wrapped up in
 	// some context from the `errors` package. It's key to call it for
-	// comparison purposes.
-	switch errors.Cause(err) {
+	// comparison purposes (or to do type checks).
+	causeErr := errors.Cause(err)
+
+	// Some special cases for common error that may occur inwards from our
+	// stack which we want to convert to something more user-friendly.
+	switch causeErr {
 	case context.DeadlineExceeded:
 		err = APIErrorTimeout.WithInternalError(err)
 	}
 
-	apiErr, ok := err.(*APIError)
+	apiErr, ok := causeErr.(*APIError)
 
 	// Wrap a non-API error in an API error, keeping the internal error
 	// intact
