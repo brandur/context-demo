@@ -536,6 +536,8 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 		// example, if the client's connection is very slow and it took them a
 		// long time to stream their request body to us.
 		if shouldPreemptiveCancel(state.Ctx, preemptiveCancelThresholdHandlerStart) {
+			log.Debugf("Preemptively cancelling API handler because less than %v remains",
+				preemptiveCancelThresholdHandlerStart)
 			state.CtxCancel()
 			renderError(w, requestInfo, APIErrorPreemptiveCancel)
 			return

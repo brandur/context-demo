@@ -57,7 +57,7 @@ const (
 
 	// The simulated time for a slow request. The client will send one byte at
 	// a time and aim to make the entirety of the dispatch take this long.
-	targetSlowDuration = 2300 * time.Millisecond
+	targetSlowDuration = 2400 * time.Millisecond
 )
 
 //////////////////////////////////////////////////////////////////////////////
@@ -75,7 +75,7 @@ type RecordType string
 
 type putRecordParams struct {
 	RecordType RecordType `json:"type"`
-	Value string `json:"value"`
+	Value      string     `json:"value"`
 }
 
 type slowReader struct {
@@ -119,7 +119,7 @@ func (r *slowReader) Read(data []byte) (int, error) {
 func makeRequest() error {
 	params := &putRecordParams{
 		RecordType: testRecordType,
-		Value: testRecordValue,
+		Value:      testRecordValue,
 	}
 
 	data, err := json.Marshal(&params)
