@@ -140,23 +140,31 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			}
 		}
 
-		{
-			upsertRecordMethod := http.MethodPost
-			upsertRecordPath := "/zones/" + cloudflareZoneID + "/dns_records"
-			if cloudflareRecordID != "" {
-				upsertRecordMethod = http.MethodPut
-				upsertRecordPath = "/zones/" + cloudflareZoneID + "/dns_records/" + cloudflareRecordID
-			}
-
-			err := makeCloudflareAPICall(upsertRecordMethod, upsertRecordPath,
-				&cloudflareCreateRecordRequest{
+		if cloudflareRecordID == "" {
+			err := makeCloudflareAPICall(
+				http.MethodPost,
+				"/zones/"+cloudflareZoneID+"/dns_records",
+				&cloudflareCreateOrUpdateRecordRequest{
 					Content: bodyParams.Value,
 					Name:    recordName,
 					Type:    bodyParams.RecordType,
 				},
 				nil)
 			if err != nil {
-				return errors.Wrap(err, "error creating or updating Coudflare record")
+				return errors.Wrap(err, "error creating Cloudflare record")
+			}
+		} else {
+			err := makeCloudflareAPICall(
+				http.MethodPut,
+				"/zones/"+cloudflareZoneID+"/dns_records/"+cloudflareRecordID,
+				&cloudflareCreateOrUpdateRecordRequest{
+					Content: bodyParams.Value,
+					Name:    recordName,
+					Type:    bodyParams.RecordType,
+				},
+				nil)
+			if err != nil {
+				return errors.Wrap(err, "error updating Cloudflare record")
 			}
 		}
 
@@ -515,7 +523,7 @@ type cloudflareErrorItem struct {
 	Message string `json:"message"`
 }
 
-type cloudflareCreateRecordRequest struct {
+type cloudflareCreateOrUpdateRecordRequest struct {
 	Content string     `json:"content"`
 	Name    string     `json:"name"`
 	Type    RecordType `json:"type"`
