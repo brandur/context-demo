@@ -90,7 +90,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		var cloudflareZoneID string
 		err := maybePreemptiveCancelAPICall(state, func() error {
 			var res cloudflareGetZonesResponse
-			err := makeCloudflareAPICall(http.MethodGet, "/zones?name="+zoneName,
+			err := makeCloudflareAPICall(state, http.MethodGet, "/zones?name="+zoneName,
 				nil, &res)
 			if err != nil {
 				return errors.Wrap(err, "error retrieving Coudflare zones")
@@ -111,7 +111,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		//
 		if cloudflareZoneID == "" {
 			err := maybePreemptiveCancelAPICall(state, func() error {
-				err := makeCloudflareAPICall(http.MethodPost, "/zones",
+				err := makeCloudflareAPICall(state, http.MethodPost, "/zones",
 					&cloudflareCreateZoneRequest{Name: zoneName}, nil)
 				if err != nil {
 					return errors.Wrap(err, "error creating Coudflare zone")
@@ -155,7 +155,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		err = maybePreemptiveCancelAPICall(state, func() error {
 			getRecordsPath := "/zones/" + cloudflareZoneID + "/dns_records?name=" + recordName
 			var res cloudflareGetRecordsResponse
-			err := makeCloudflareAPICall(http.MethodGet, getRecordsPath,
+			err := makeCloudflareAPICall(state, http.MethodGet, getRecordsPath,
 				nil, &res)
 			if err != nil {
 				return errors.Wrap(err, "error retrieving Cloudflare record")
@@ -177,6 +177,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		err = maybePreemptiveCancelAPICall(state, func() error {
 			if cloudflareRecordID == "" {
 				err := makeCloudflareAPICall(
+					state,
 					http.MethodPost,
 					"/zones/"+cloudflareZoneID+"/dns_records",
 					&cloudflareCreateOrUpdateRecordRequest{
@@ -190,6 +191,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 				}
 			} else {
 				err := makeCloudflareAPICall(
+					state,
 					http.MethodPut,
 					"/zones/"+cloudflareZoneID+"/dns_records/"+cloudflareRecordID,
 					&cloudflareCreateOrUpdateRecordRequest{
@@ -411,11 +413,12 @@ type RecordType string
 
 // RequestInfo stores information about the request for logging purposes.
 type RequestInfo struct {
-	APIError   *APIError
-	Start      time.Time
-	StatusCode int
-	TimeLeft   time.Duration
-	TimedOut   bool
+	APIError           *APIError
+	DurationCloudflare time.Duration
+	Start              time.Time
+	StatusCode         int
+	TimeLeft           time.Duration
+	TimedOut           bool
 }
 
 // RequestState contains key data for an active request.
@@ -471,11 +474,12 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 			requestInfo.TimedOut = !ok
 
 			log.WithFields(log.Fields{
-				"api_error": requestInfo.APIError,
-				"duration":  time.Now().Sub(requestInfo.Start),
-				"status":    requestInfo.StatusCode,
-				"time_left": requestInfo.TimeLeft,
-				"timed_out": requestInfo.TimedOut,
+				"api_error":           requestInfo.APIError,
+				"duration":            time.Now().Sub(requestInfo.Start),
+				"duration_cloudflare": requestInfo.DurationCloudflare,
+				"status":              requestInfo.StatusCode,
+				"time_left":           requestInfo.TimeLeft,
+				"timed_out":           requestInfo.TimedOut,
 			}).Info("canonical_log_line")
 		}()
 
@@ -610,13 +614,15 @@ func flattenCloudflareErrorItems(errors []*cloudflareErrorItem) string {
 	return strings.Join(errorStrings, "; ")
 }
 
-func makeCloudflareAPICall(method, path string, params interface{}, res interface{}) error {
+func makeCloudflareAPICall(state *RequestState, method, path string, params interface{}, res interface{}) error {
 	client := http.Client{}
 
 	start := time.Now()
 	log.Debugf("Making Cloudflare API request: %s %s", method, path)
 	defer func() {
-		log.Debugf("Cloudflare API request took %v", time.Now().Sub(start))
+		duration := time.Now().Sub(start)
+		state.RequestInfo.DurationCloudflare += duration
+		log.Debugf("Cloudflare API request took %v", duration)
 	}()
 
 	// Maybe send API parameters, but not every API call needs them.
