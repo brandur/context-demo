@@ -82,8 +82,11 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 	bodyParams := state.BodyParams.(*putRecordParams)
 
 	err := state.DB.RunInTransaction(func(tx *pg.Tx) error {
+		//
+		// See if there's an existing zone in Cloudflare
+		//
 		var cloudflareZoneID string
-		{
+		err := maybePreemptiveCancelAPICall(state, func() error {
 			var res cloudflareGetZonesResponse
 			err := makeCloudflareAPICall(http.MethodGet, "/zones?name="+zoneName,
 				nil, &res)
@@ -94,18 +97,36 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			if len(res.Result) > 0 {
 				cloudflareZoneID = res.Result[0].ID
 			}
+
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 
+		//
+		// If there was no existing zone, create one
+		//
 		if cloudflareZoneID == "" {
-			err := makeCloudflareAPICall(http.MethodPost, "/zones",
-				&cloudflareCreateZoneRequest{Name: zoneName}, nil)
+			err := maybePreemptiveCancelAPICall(state, func() error {
+				err := makeCloudflareAPICall(http.MethodPost, "/zones",
+					&cloudflareCreateZoneRequest{Name: zoneName}, nil)
+				if err != nil {
+					return errors.Wrap(err, "error creating Coudflare zone")
+				}
+
+				return nil
+			})
 			if err != nil {
-				return errors.Wrap(err, "error creating Coudflare zone")
+				return err
 			}
 		}
 
+		//
+		// Upsert a zone in the database
+		//
 		var zone *Zone
-		err := maybePreemptiveCancelDB(state, func() error {
+		err = maybePreemptiveCancelDB(state, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
@@ -125,8 +146,11 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			return err
 		}
 
+		//
+		// See if there's an existing DNS record in Cloudflare
+		//
 		var cloudflareRecordID string
-		{
+		err = maybePreemptiveCancelAPICall(state, func() error {
 			getRecordsPath := "/zones/" + cloudflareZoneID + "/dns_records?name=" + recordName
 			var res cloudflareGetRecordsResponse
 			err := makeCloudflareAPICall(http.MethodGet, getRecordsPath,
@@ -138,36 +162,54 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			if len(res.Result) > 0 {
 				cloudflareRecordID = res.Result[0].ID
 			}
+
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 
-		if cloudflareRecordID == "" {
-			err := makeCloudflareAPICall(
-				http.MethodPost,
-				"/zones/"+cloudflareZoneID+"/dns_records",
-				&cloudflareCreateOrUpdateRecordRequest{
-					Content: bodyParams.Value,
-					Name:    recordName,
-					Type:    bodyParams.RecordType,
-				},
-				nil)
-			if err != nil {
-				return errors.Wrap(err, "error creating Cloudflare record")
+		//
+		// Either update (if existing) or create a DNS record in Cloudflare
+		//
+		err = maybePreemptiveCancelAPICall(state, func() error {
+			if cloudflareRecordID == "" {
+				err := makeCloudflareAPICall(
+					http.MethodPost,
+					"/zones/"+cloudflareZoneID+"/dns_records",
+					&cloudflareCreateOrUpdateRecordRequest{
+						Content: bodyParams.Value,
+						Name:    recordName,
+						Type:    bodyParams.RecordType,
+					},
+					nil)
+				if err != nil {
+					return errors.Wrap(err, "error creating Cloudflare record")
+				}
+			} else {
+				err := makeCloudflareAPICall(
+					http.MethodPut,
+					"/zones/"+cloudflareZoneID+"/dns_records/"+cloudflareRecordID,
+					&cloudflareCreateOrUpdateRecordRequest{
+						Content: bodyParams.Value,
+						Name:    recordName,
+						Type:    bodyParams.RecordType,
+					},
+					nil)
+				if err != nil {
+					return errors.Wrap(err, "error updating Cloudflare record")
+				}
 			}
-		} else {
-			err := makeCloudflareAPICall(
-				http.MethodPut,
-				"/zones/"+cloudflareZoneID+"/dns_records/"+cloudflareRecordID,
-				&cloudflareCreateOrUpdateRecordRequest{
-					Content: bodyParams.Value,
-					Name:    recordName,
-					Type:    bodyParams.RecordType,
-				},
-				nil)
-			if err != nil {
-				return errors.Wrap(err, "error updating Cloudflare record")
-			}
+
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 
+		//
+		// Upsert a DNS record in the database
+		//
 		err = maybePreemptiveCancelDB(state, func() error {
 			record := &Record{
 				Name:       recordName,
@@ -243,6 +285,7 @@ const (
 // example, so the former has a higher threshold, meaning that we'll cancel
 // preemptively more aggressively.
 const (
+	preemptiveCancelThresholdAPICall      = 200 * time.Millisecond
 	preemptiveCancelThresholdDB           = 5 * time.Millisecond
 	preemptiveCancelThresholdHandlerStart = 2 * time.Second
 )
@@ -629,6 +672,18 @@ func makeCloudflareAPICall(method, path string, params interface{}, res interfac
 	}
 
 	return nil
+}
+
+// Runs a call to an external API (e.g. Cloudflare) unless the request has
+// taken a long time and we're too close to the preemptive cancellation
+// threshold.
+func maybePreemptiveCancelAPICall(state *RequestState, f func() error) error {
+	if shouldPreemptiveCancel(state.Ctx, preemptiveCancelThresholdAPICall) {
+		state.CtxCancel()
+		return APIErrorPreemptiveCancel
+	}
+
+	return f()
 }
 
 // Runs a database call unless the request has taken a long time and we're too
