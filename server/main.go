@@ -128,7 +128,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		// Upsert a zone in the database
 		//
 		var zone *Zone
-		err = maybePreemptiveCancelDB(state, func() error {
+		err = maybePreemptiveCancelDBCall(state, func() error {
 			zone = &Zone{
 				Name: zoneName,
 			}
@@ -214,7 +214,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		//
 		// Upsert a DNS record in the database
 		//
-		err = maybePreemptiveCancelDB(state, func() error {
+		err = maybePreemptiveCancelDBCall(state, func() error {
 			record := &Record{
 				Name:       recordName,
 				RecordType: bodyParams.RecordType,
@@ -691,6 +691,8 @@ func makeCloudflareAPICall(state *RequestState, method, path string, params inte
 // threshold.
 func maybePreemptiveCancelAPICall(state *RequestState, f func() error) error {
 	if shouldPreemptiveCancel(state.Ctx, preemptiveCancelThresholdAPICall) {
+		log.Debugf("Preemptively cancelling API call because less than %v remains",
+			preemptiveCancelThresholdAPICall)
 		state.CtxCancel()
 		return APIErrorPreemptiveCancel
 	}
@@ -700,8 +702,10 @@ func maybePreemptiveCancelAPICall(state *RequestState, f func() error) error {
 
 // Runs a database call unless the request has taken a long time and we're too
 // close to the preemptive cancellation threshold.
-func maybePreemptiveCancelDB(state *RequestState, f func() error) error {
+func maybePreemptiveCancelDBCall(state *RequestState, f func() error) error {
 	if shouldPreemptiveCancel(state.Ctx, preemptiveCancelThresholdDB) {
+		log.Debugf("Preemptively cancelling DB call because less than %v remains",
+			preemptiveCancelThresholdDB)
 		state.CtxCancel()
 		return APIErrorPreemptiveCancel
 	}
