@@ -359,6 +359,7 @@ type RecordType string
 // RequestInfo stores information about the request for logging purposes.
 type RequestInfo struct {
 	APIError   *APIError
+	Start      time.Time
 	StatusCode int
 	TimeLeft   time.Duration
 	TimedOut   bool
@@ -408,7 +409,9 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 		ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 		defer cancel()
 
-		requestInfo := &RequestInfo{}
+		requestInfo := &RequestInfo{
+			Start: time.Now(),
+		}
 		defer func() {
 			deadline, ok := ctx.Deadline()
 			requestInfo.TimeLeft = deadline.Sub(time.Now())
@@ -416,6 +419,7 @@ func handlerWrapper(handler handler, bodyParams BodyParams) httprouter.Handle {
 
 			log.WithFields(log.Fields{
 				"api_error": requestInfo.APIError,
+				"duration":  time.Now().Sub(requestInfo.Start),
 				"status":    requestInfo.StatusCode,
 				"time_left": requestInfo.TimeLeft,
 				"timed_out": requestInfo.TimedOut,
