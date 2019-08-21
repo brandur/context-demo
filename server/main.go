@@ -29,6 +29,8 @@ import (
 //////////////////////////////////////////////////////////////////////////////
 
 func main() {
+	log.SetLevel(log.DebugLevel)
+
 	err := envdecode.Decode(&conf)
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "error reading configuration"))
@@ -285,7 +287,7 @@ const (
 // example, so the former has a higher threshold, meaning that we'll cancel
 // preemptively more aggressively.
 const (
-	preemptiveCancelThresholdAPICall      = 200 * time.Millisecond
+	preemptiveCancelThresholdAPICall      = 100 * time.Millisecond
 	preemptiveCancelThresholdDB           = 5 * time.Millisecond
 	preemptiveCancelThresholdHandlerStart = 2 * time.Second
 )
@@ -611,7 +613,11 @@ func flattenCloudflareErrorItems(errors []*cloudflareErrorItem) string {
 func makeCloudflareAPICall(method, path string, params interface{}, res interface{}) error {
 	client := http.Client{}
 
+	start := time.Now()
 	log.Debugf("Making Cloudflare API request: %s %s", method, path)
+	defer func() {
+		log.Debugf("Cloudflare API request took %v", time.Now().Sub(start))
+	}()
 
 	// Maybe send API parameters, but not every API call needs them.
 	var reader io.Reader
