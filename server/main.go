@@ -291,7 +291,7 @@ const (
 const (
 	preemptiveCancelThresholdAPICall      = 100 * time.Millisecond
 	preemptiveCancelThresholdDB           = 5 * time.Millisecond
-	preemptiveCancelThresholdHandlerStart = 2 * time.Second
+	preemptiveCancelThresholdHandlerStart = 500 * time.Millisecond
 )
 
 //////////////////////////////////////////////////////////////////////////////

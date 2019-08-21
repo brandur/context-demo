@@ -50,13 +50,14 @@ const (
 	testServerURL = "http://localhost:8788"
 
 	// Test zone and record names to use.
-	testZoneName   = "mutelight.org"
-	testRecordName = "context.mutelight.org"
-	testRecordType = "CNAME"
+	testZoneName    = "mutelight.org"
+	testRecordName  = "context.mutelight.org"
+	testRecordType  = "CNAME"
+	testRecordValue = "brandur.org"
 
 	// The simulated time for a slow request. The client will send one byte at
 	// a time and aim to make the entirety of the dispatch take this long.
-	targetSlowDuration = 3 * time.Second
+	targetSlowDuration = 2300 * time.Millisecond
 )
 
 //////////////////////////////////////////////////////////////////////////////
@@ -74,6 +75,7 @@ type RecordType string
 
 type putRecordParams struct {
 	RecordType RecordType `json:"type"`
+	Value string `json:"value"`
 }
 
 type slowReader struct {
@@ -115,7 +117,10 @@ func (r *slowReader) Read(data []byte) (int, error) {
 //////////////////////////////////////////////////////////////////////////////
 
 func makeRequest() error {
-	params := &putRecordParams{RecordType: RecordTypeCNAME}
+	params := &putRecordParams{
+		RecordType: testRecordType,
+		Value: testRecordValue,
+	}
 
 	data, err := json.Marshal(&params)
 	if err != nil {
