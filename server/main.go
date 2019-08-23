@@ -93,7 +93,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			err := makeCloudflareAPICall(state, http.MethodGet, "/zones?name="+zoneName,
 				nil, &res)
 			if err != nil {
-				return errors.Wrap(err, "error retrieving Coudflare zones")
+				return err
 			}
 
 			if len(res.Result) > 0 {
@@ -103,7 +103,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			return nil
 		})
 		if err != nil {
-			return err
+			return errors.Wrap(err, "error retrieving Coudflare zones")
 		}
 
 		//
@@ -111,16 +111,11 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		//
 		if cloudflareZoneID == "" {
 			err := maybePreemptiveCancelAPICall(state, func() error {
-				err := makeCloudflareAPICall(state, http.MethodPost, "/zones",
+				return makeCloudflareAPICall(state, http.MethodPost, "/zones",
 					&cloudflareCreateZoneRequest{Name: zoneName}, nil)
-				if err != nil {
-					return errors.Wrap(err, "error creating Coudflare zone")
-				}
-
-				return nil
 			})
 			if err != nil {
-				return err
+				return errors.Wrap(err, "error creating Coudflare zone")
 			}
 		}
 
@@ -138,14 +133,10 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 				Set("updated_at = NOW()").
 				Returning("*").
 				Insert()
-			if err != nil {
-				return errors.Wrap(err, "error upserting zone")
-			}
-
-			return nil
+			return err
 		})
 		if err != nil {
-			return err
+			return errors.Wrap(err, "error upserting zone")
 		}
 
 		//
@@ -153,12 +144,13 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 		//
 		var cloudflareRecordID string
 		err = maybePreemptiveCancelAPICall(state, func() error {
-			getRecordsPath := "/zones/" + cloudflareZoneID + "/dns_records?name=" + recordName
 			var res cloudflareGetRecordsResponse
-			err := makeCloudflareAPICall(state, http.MethodGet, getRecordsPath,
+			err := makeCloudflareAPICall(state,
+				http.MethodGet,
+				"/zones/"+cloudflareZoneID+"/dns_records?name="+recordName,
 				nil, &res)
 			if err != nil {
-				return errors.Wrap(err, "error retrieving Cloudflare record")
+				return err
 			}
 
 			if len(res.Result) > 0 {
@@ -168,7 +160,7 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 			return nil
 		})
 		if err != nil {
-			return err
+			return errors.Wrap(err, "error retrieving Cloudflare record")
 		}
 
 		//
@@ -227,14 +219,10 @@ func putRecord(w http.ResponseWriter, r *http.Request, state *RequestState) (int
 				Set("updated_at = NOW(), value = EXCLUDED.value").
 				Returning("*").
 				Insert()
-			if err != nil {
-				return errors.Wrap(err, "error upserting record")
-			}
-
-			return nil
+			return err
 		})
 		if err != nil {
-			return err
+			return errors.Wrap(err, "error upserting record")
 		}
 
 		return nil
